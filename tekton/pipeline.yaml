@@ -3,6 +3,7 @@
 #   - cleanup        (your custom task from tekton/tasks.yaml)
 #   - git-clone      (from Tekton catalog / hub)
 #   - flake8         (your custom task from tekton/tasks.yaml)
+#   - nose           (a Task named "nose" must exist in the cluster)
 #
 ---
 apiVersion: tekton.dev/v1beta1
@@ -12,16 +13,18 @@ metadata:
 spec:
   workspaces:
     - name: pipeline-workspace
+
   params:
     - name: repo-url
       type: string
       description: The git repo URL to clone from
     - name: branch
       type: string
-      default: main
+      default: "main"
     - name: build-image
       type: string
       description: Image to build and push (reserved for later stages)
+
   tasks:
     - name: init
       taskRef:
@@ -29,6 +32,7 @@ spec:
       workspaces:
         - name: source
           workspace: pipeline-workspace
+
     - name: clone
       taskRef:
         name: git-clone
@@ -39,9 +43,9 @@ spec:
           workspace: pipeline-workspace
       params:
         - name: url
-          value: $(params.repo-url)
+          value: "$(params.repo-url)"
         - name: revision
-          value: $(params.branch)
+          value: "$(params.branch)"
 
     - name: lint
       taskRef:
@@ -56,16 +60,31 @@ spec:
           value: "service"
         - name: args
           value: "--count --max-complexity=10 --max-line-length=127 --statistics"
+
     - name: tests
-          workspaces:
-            - name: source
-              workspace: pipeline-workspace
-          taskRef:
-            name: nose
-          params:
-          - name: database_uri
-            value: "sqlite:///test.db"
-          - name: args
-            value: "-v --with-spec --spec-color"
-          runAfter:
-            - clone
+      taskRef:
+        name: nose
+      runAfter:
+        - clone
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      params:
+        - name: database_uri
+          value: "sqlite:///test.db"
+        - name: args
+          value: "-v --with-spec --spec-color"
+    
+    - name: build
+      workspaces:
+        - name: source
+          workspace: pipeline-workspace
+      taskRef:
+        name: buildah
+        kind: ClusterTask
+      params:
+      - name: IMAGE
+        value: "$(params.build-image)"
+      runAfter:
+        - tests
+        - lint
